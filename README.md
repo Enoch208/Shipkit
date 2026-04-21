@@ -12,7 +12,7 @@ Built on [Ace Data Cloud](https://acedata.cloud). Billed per request via x402 in
 
 Paste `github.com/owner/repo` → 60 seconds later you have:
 
-- 🎬 **Cinematic trailer** — 5–10s, Luma-rendered, anchored on the hero poster's first frame
+- 🎬 **Cinematic trailer** — 5–10s, rendered by Veo (`veo2-fast`) in 16:9
 - 🎵 **Theme song** — 30s launch anthem from Suno
 - 🎨 **Three posters** — 16:9 hero · 1:1 social · 9:16 stories (Midjourney v6)
 - ✍️ **Launch copy** — README rewrite + 5-tweet thread (Ace Chat)
@@ -51,7 +51,7 @@ Pay with x402 on top-up → instant 5% discount. Hold `$ACE` for further tier di
 
 - **Next.js 16.2** (App Router) · **React 19** · **Tailwind v4**
 - **Hugeicons** for iconography, **Satoshi** + **Instrument Serif Italic** for type
-- **Ace Data Cloud** — Chat (`gpt-4o-mini`) · Suno · Midjourney · Luma
+- **Ace Data Cloud** — Chat (`gpt-4o-mini`) · Suno · Midjourney · Veo
 - **x402** — USDC on Solana or Base
 
 Backend is a single Next.js Route Handler at `app/api/generate/route.ts` that orchestrates GitHub → Chat → parallel media fan-out with per-service error isolation.
@@ -80,7 +80,7 @@ GITHUB_TOKEN=ghp_...         # bumps GitHub rate limit from 60/hr → 5000/hr
 
 | Qualifier | How |
 |---|---|
-| **Multi-tool creation** | Chat + Suno + Midjourney + Luma in one pipeline |
+| **Multi-tool creation** | Chat + Suno + Midjourney + Veo in one pipeline |
 | **x402 walkthrough** | [Dedicated payment section](https://shipkit.vercel.app/#pay) + live itemized receipt on every kit |
 | **Pay-per-use vs subscription** | [Pricing page](https://shipkit.vercel.app/#pricing) shows `$0.50` vs `$155/mo` with break-even math |
 | **Live Nexior deployment** (bonus) | Forked and deployed alongside |
@@ -90,7 +90,7 @@ GITHUB_TOKEN=ghp_...         # bumps GitHub rate limit from 60/hr → 5000/hr
 - [frontend/](frontend/) — Next.js app (pages, API routes, pipeline)
 - [frontend/lib/github.ts](frontend/lib/github.ts) — repo URL parsing + metadata/README fetch
 - [frontend/lib/ace.ts](frontend/lib/ace.ts) — Ace Chat wrapper (JSON-mode completions)
-- [frontend/lib/ace-media.ts](frontend/lib/ace-media.ts) — Suno / Midjourney (NDJSON stream) / Luma wrappers
+- [frontend/lib/ace-media.ts](frontend/lib/ace-media.ts) — Suno / Midjourney (NDJSON stream) / Veo wrappers
 - [frontend/app/api/generate/route.ts](frontend/app/api/generate/route.ts) — the orchestrator
 - [AGENTS.md](AGENTS.md) — full project spec + design system
 

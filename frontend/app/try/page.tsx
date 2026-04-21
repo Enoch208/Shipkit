@@ -372,7 +372,7 @@ function Pipeline({ loading = false }: { loading?: boolean }) {
   const streams = [
     { icon: MusicNote01Icon, label: "Song", hint: "Suno · 30s" },
     { icon: ImageAdd02Icon, label: "Posters", hint: "Midjourney · ×3" },
-    { icon: FilmRoll01Icon, label: "Trailer", hint: "Luma · 5–10s" },
+    { icon: FilmRoll01Icon, label: "Trailer", hint: "Veo · 5–10s" },
     { icon: TextFontIcon, label: "Copy", hint: "README + thread" },
   ];
   return (
@@ -470,7 +470,7 @@ function MediaSection({ media }: { media: Media }) {
           <div className="mb-3 flex items-center justify-between text-[11px] uppercase tracking-[0.22em] text-white/40">
             <span>Trailer</span>
             <span className="font-mono normal-case tracking-normal">
-              Luma
+              Veo
             </span>
           </div>
           <video
@@ -634,7 +634,7 @@ function CostReceipt({ media }: { media: Media }) {
     });
   }
   if (media.trailer?.video_url) {
-    lines.push({ label: "Luma · cinematic trailer", amount: PRICES.trailer });
+    lines.push({ label: "Veo · cinematic trailer", amount: PRICES.trailer });
   }
 
   const subtotal = lines.reduce((s, l) => s + l.amount, 0);
