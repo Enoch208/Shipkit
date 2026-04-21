@@ -20,18 +20,35 @@ Paste `github.com/owner/repo` → 60 seconds later you have:
 
 ## Pipeline
 
-```
-GitHub URL
-  → GET /repos/{owner}/{repo}     [GitHub API]
-  → POST /v1/chat/completions     [Ace Chat — creative brief, JSON mode]
-  → Parallel fan-out:
-      • POST /suno/audios           → 30s theme song
-      • POST /midjourney/imagine ×3 → posters (16:9, 1:1, 9:16)
-      • POST /luma/videos           → cinematic trailer
-  → Render kit + cost receipt
+```mermaid
+flowchart TD
+    U([GitHub URL]) --> G["GitHub API<br/>repo metadata + README"]
+    G --> C["Ace Chat · gpt-4o-mini<br/>creative brief (JSON)"]
+
+    C --> S["Suno<br/>30s theme song"]
+    C --> M["Midjourney ×3<br/>16:9 · 1:1 · 9:16 posters"]
+    C --> V["Veo · veo2-fast<br/>5–10s cinematic trailer"]
+    C --> T["Launch copy<br/>README + 5-tweet thread"]
+
+    S --> K((Launch Kit))
+    M --> K
+    V --> K
+    T --> K
+
+    K -. itemized .-> X["x402 receipt<br/>USDC on Solana or Base · −5%"]
+
+    classDef source stroke:#888,color:#888
+    classDef ace stroke:#aaa
+    classDef out stroke:#f0dfb8,color:#f0dfb8,stroke-width:2px
+    classDef pay stroke:#10b981,color:#10b981,stroke-dasharray:4 3
+
+    class U,G source
+    class C,S,M,V,T ace
+    class K out
+    class X pay
 ```
 
-All 4 media calls fire in parallel. Errors isolate per-service so one failure doesn't kill the kit.
+All four media calls fan out in parallel. Errors isolate per-service — one failure doesn't kill the kit.
 
 ## The cost story
 
