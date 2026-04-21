@@ -96,61 +96,24 @@ export type TrailerResult = {
   thumbnail_url: string | null;
 };
 
-function sleep(ms: number) {
-  return new Promise((r) => setTimeout(r, ms));
-}
-
 export async function generateTrailer(
   token: string,
   prompt: string,
-  aspectRatio: "16:9" | "9:16" | "1:1" = "16:9"
+  frameUrl?: string
 ): Promise<TrailerResult> {
-  const res = await fetch(`${ACE_BASE}/veo/videos`, {
+  const body: Record<string, unknown> = { prompt };
+  if (frameUrl) {
+    body.keyframes = { frame0: { type: "image", url: frameUrl } };
+  }
+  const res = await fetch(`${ACE_BASE}/luma/videos`, {
     method: "POST",
     headers: jsonHeaders(token),
-    body: JSON.stringify({
-      action: "text2video",
-      model: "veo2-fast",
-      prompt,
-      aspect_ratio: aspectRatio,
-    }),
+    body: JSON.stringify(body),
   });
-  if (!res.ok) throw new Error(`Veo ${res.status}: ${await errText(res)}`);
+  if (!res.ok) throw new Error(`Luma ${res.status}: ${await errText(res)}`);
   const data = await res.json();
-
-  if (data?.video_url) {
-    return {
-      video_url: data.video_url,
-      thumbnail_url: data.thumbnail_url ?? null,
-    };
-  }
-
-  const taskId = data?.task_id;
-  if (!taskId) {
-    throw new Error(
-      `Veo: no video_url or task_id in response (${JSON.stringify(data).slice(0, 200)})`
-    );
-  }
-
-  for (let i = 0; i < 36; i++) {
-    await sleep(5000);
-    const pollRes = await fetch(`${ACE_BASE}/veo/videos/${taskId}`, {
-      headers: jsonHeaders(token),
-    });
-    if (!pollRes.ok) continue;
-    const poll = await pollRes.json();
-    if (poll?.video_url) {
-      return {
-        video_url: poll.video_url,
-        thumbnail_url: poll.thumbnail_url ?? null,
-      };
-    }
-    if (poll?.state === "failed" || poll?.success === false) {
-      throw new Error(
-        `Veo failed: ${poll?.error?.message ?? "unknown error"}`
-      );
-    }
-  }
-
-  throw new Error("Veo: timed out after 3 minutes");
+  return {
+    video_url: data?.video_url ?? null,
+    thumbnail_url: data?.thumbnail_url ?? null,
+  };
 }
