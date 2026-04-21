@@ -634,7 +634,7 @@ function CostReceipt({ media }: { media: Media }) {
     });
   }
   if (media.trailer?.video_url) {
-    lines.push({ label: "Veo · cinematic trailer", amount: PRICES.trailer });
+    lines.push({ label: "Luma · cinematic trailer", amount: PRICES.trailer });
   }
 
   const subtotal = lines.reduce((s, l) => s + l.amount, 0);
