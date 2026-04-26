@@ -164,7 +164,6 @@ function ServiceStrip() {
     { icon: SparklesIcon, label: "Ace Chat" },
     { icon: MusicNote01Icon, label: "Suno" },
     { icon: ImageAdd02Icon, label: "Midjourney" },
-    { icon: PlayIcon, label: "Luma" },
     { icon: FlashIcon, label: "Veo" },
     { icon: CommandIcon, label: "x402" },
   ];
@@ -229,7 +228,7 @@ function HowItWorks() {
       num: "02",
       icon: ZapIcon,
       title: "Four services, in parallel",
-      body: "Ace Chat writes the brief. Suno composes the song. Midjourney renders posters. Luma generates the trailer.",
+      body: "Ace Chat writes the brief. Suno composes the song. Midjourney renders posters. Veo generates the trailer.",
     },
     {
       num: "03",
@@ -304,8 +303,8 @@ function Features() {
         <FeatureCard
           icon={FilmRoll01Icon}
           title="Cinematic trailer"
-          body="5–10 seconds, rendered by Luma. Anchored on the hero poster's first frame for continuity."
-          meta="Luma · 720p"
+          body="5–10 seconds, rendered by Veo. Cinematic motion designed to anchor the launch."
+          meta="Veo · 720p"
           span="lg:col-span-2"
         />
         <FeatureCard
@@ -668,7 +667,7 @@ function PayFlow() {
           <ReceiptRow label="Ace Chat · brief" value="$0.003" />
           <ReceiptRow label="Suno · theme song" value="$0.080" />
           <ReceiptRow label="Midjourney · ×3 posters" value="$0.120" />
-          <ReceiptRow label="Luma · trailer" value="$0.350" />
+          <ReceiptRow label="Veo · trailer" value="$0.350" />
         </ul>
         <div className="mt-3 flex flex-col gap-1 border-t border-dashed border-white/10 pt-3 font-mono text-[13px] text-white/55">
           <ReceiptRow label="Subtotal" value="$0.553" />

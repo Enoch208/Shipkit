@@ -20,7 +20,7 @@ GitHub URL
   → Parallel fan-out:
       • Suno       → 30s theme song
       • Midjourney → 3 posters (16:9, 1:1, 9:16)
-      • Luma       → 5–10s cinematic trailer
+      • Veo        → 5–10s cinematic trailer
       • Chat       → README rewrite + 5-tweet thread
   → Poll until complete
   → Render kit page + x402 settlement receipt
@@ -42,8 +42,7 @@ All 3 media calls fire in parallel. That's the product.
 | Chat | `POST /v1/chat/completions` | Creative brief, README rewrite, tweets | Use `gpt-4o-mini` or `deepseek-chat` for cost; OpenAI response shape; set `response_format: {type: "json_object"}` |
 | Suno | `POST /suno/audios` | Theme song | `action: "generate"`; simple (prompt-only) vs. custom (lyric/title/style); returns 2 variants; stream URL in 30–40s, MP3 in 2–3 min |
 | Midjourney | `POST /midjourney/imagine` | Posters | **Streaming NDJSON response** (not JSON); each line is a progress tick, final line has the image; modifiers: `--ar 16:9`, `--v 6`, `--style raw` |
-| Luma | `POST /luma/videos` | Trailer (MVP tier) | `action: "generate"`; sync (blocks ~1–2 min) and returns top-level `video_url` / `thumbnail_url`; pass a Midjourney poster as `start_image_url` to anchor the first frame (`end_image_url` for last frame); set `aspect_ratio` (e.g. `"16:9"`) |
-| Veo | `POST /veo/videos` | Trailer (premium tier) | Models: `veo2-fast`, `veo3`, `veo3.1`; supports `callback_url`; 4K via `get1080p: true, resolution: "4k"` |
+| Veo | `POST /veo/videos` | Trailer | Task-based: returns `task_id` immediately; poll `POST /veo/tasks` with `{id, action: "retrieve"}` until `data[0].state === "succeeded"`. `action: "text2video"` (or `"image2video"` with `image_urls: [url]`); `model: "veo3-fast"` (cheap default); `aspect_ratio: "16:9"`; 4K via separate `action: "get1080p"`. Result at `data[0].video_url`. |
 
 ### x402 payment flow (campaign qualifier — must use)
 
@@ -74,7 +73,7 @@ Deliverable: publish a `SKILL.md` to [AceDataCloud/Skills](https://github.com/Ac
 | Chat (GPT-4o-mini, ~2k tok) | $0.002 | Trivial |
 | Suno (1 song, 2 variants) | $0.08 | Use cheaper model |
 | Midjourney × 3 | $0.12 | $0.04 each |
-| Luma (5s video) | $0.35 | Biggest line item |
+| Veo (5s video, veo3-fast) | $0.35 | Biggest line item |
 | **Total per kit** | **~$0.55** | Before x402/$ACE discounts |
 
 With x402 (5% off): ~$0.52. With $ACE holding: ~$0.48–0.50. Post-campaign price target: $2/kit = 75% gross margin.

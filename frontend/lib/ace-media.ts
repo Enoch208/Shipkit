@@ -102,23 +102,55 @@ export async function generateTrailer(
   frameUrl?: string
 ): Promise<TrailerResult> {
   const body: Record<string, unknown> = {
-    action: "generate",
+    model: "veo3-fast",
+    action: frameUrl ? "image2video" : "text2video",
     prompt,
     aspect_ratio: "16:9",
   };
-  if (frameUrl) body.start_image_url = frameUrl;
-  const res = await fetch(`${ACE_BASE}/luma/videos`, {
+  if (frameUrl) body.image_urls = [frameUrl];
+
+  const submitRes = await fetch(`${ACE_BASE}/veo/videos`, {
     method: "POST",
     headers: jsonHeaders(token),
     body: JSON.stringify(body),
   });
-  if (!res.ok) throw new Error(`Luma ${res.status}: ${await errText(res)}`);
-  const data = await res.json();
-  if (data?.success === false) {
-    throw new Error(`Luma: ${data?.error?.message ?? "generation failed"}`);
+  if (!submitRes.ok)
+    throw new Error(`Veo ${submitRes.status}: ${await errText(submitRes)}`);
+  const submit = await submitRes.json();
+  if (submit?.success === false) {
+    throw new Error(`Veo: ${submit?.error?.message ?? "submit failed"}`);
   }
-  return {
-    video_url: data?.video_url ?? null,
-    thumbnail_url: data?.thumbnail_url ?? null,
-  };
+
+  const inline = submit?.data?.[0];
+  if (inline?.state === "succeeded" && inline?.video_url) {
+    return { video_url: inline.video_url, thumbnail_url: null };
+  }
+
+  const taskId: string | undefined = submit?.task_id;
+  if (!taskId) throw new Error("Veo: no task_id in submit response");
+
+  const deadline = Date.now() + 4 * 60 * 1000;
+  while (Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 5000));
+    const pollRes = await fetch(`${ACE_BASE}/veo/tasks`, {
+      method: "POST",
+      headers: jsonHeaders(token),
+      body: JSON.stringify({ id: taskId, action: "retrieve" }),
+    });
+    if (!pollRes.ok)
+      throw new Error(`Veo poll ${pollRes.status}: ${await errText(pollRes)}`);
+    const pd = await pollRes.json();
+    const item = pd?.response?.data?.[0] ?? pd?.data?.[0];
+    const state = item?.state;
+    if (state === "succeeded" && item?.video_url) {
+      return {
+        video_url: item.video_url,
+        thumbnail_url: item.thumbnail_url ?? null,
+      };
+    }
+    if (state === "failed") {
+      throw new Error(`Veo: task ${taskId} failed`);
+    }
+  }
+  throw new Error(`Veo: task ${taskId} timed out`);
 }
