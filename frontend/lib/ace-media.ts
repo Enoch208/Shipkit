@@ -101,10 +101,12 @@ export async function generateTrailer(
   prompt: string,
   frameUrl?: string
 ): Promise<TrailerResult> {
-  const body: Record<string, unknown> = { prompt };
-  if (frameUrl) {
-    body.keyframes = { frame0: { type: "image", url: frameUrl } };
-  }
+  const body: Record<string, unknown> = {
+    action: "generate",
+    prompt,
+    aspect_ratio: "16:9",
+  };
+  if (frameUrl) body.start_image_url = frameUrl;
   const res = await fetch(`${ACE_BASE}/luma/videos`, {
     method: "POST",
     headers: jsonHeaders(token),
@@ -112,6 +114,9 @@ export async function generateTrailer(
   });
   if (!res.ok) throw new Error(`Luma ${res.status}: ${await errText(res)}`);
   const data = await res.json();
+  if (data?.success === false) {
+    throw new Error(`Luma: ${data?.error?.message ?? "generation failed"}`);
+  }
   return {
     video_url: data?.video_url ?? null,
     thumbnail_url: data?.thumbnail_url ?? null,
