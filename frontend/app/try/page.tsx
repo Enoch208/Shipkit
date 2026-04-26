@@ -183,6 +183,19 @@ export default function TryPage() {
       setError(err instanceof Error ? err.message : "Unknown error");
     } finally {
       setLoading(false);
+      setStatus((s) => {
+        const flush = (st: Status): Status => (st === "pending" ? "error" : st);
+        return {
+          copy: flush(s.copy),
+          song: flush(s.song),
+          posters: [
+            flush(s.posters[0]),
+            flush(s.posters[1]),
+            flush(s.posters[2]),
+          ],
+          trailer: flush(s.trailer),
+        };
+      });
     }
   }
 
@@ -761,7 +774,7 @@ function MediaSection({
         <ErrorNote label="Song" message={media.song_error} />
       ) : null}
 
-      {posters.length > 0 || postersDone < 3 ? (
+      {posters.length > 0 || status.posters.some((s) => s === "pending") ? (
         <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-5 backdrop-blur-md">
           <div className="mb-3 flex items-center justify-between text-[11px] uppercase tracking-[0.22em] text-white/40">
             <span>Posters</span>
