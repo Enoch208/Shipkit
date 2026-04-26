@@ -68,11 +68,44 @@ type Media = {
   trailer_error: string | null;
 };
 
-type GenerateResponse = {
-  repo: RepoMeta;
-  brief: Brief;
-  media: Media | null;
+type Status = "pending" | "done" | "error";
+
+type StreamStatus = {
+  copy: Status;
+  song: Status;
+  posters: [Status, Status, Status];
+  trailer: Status;
 };
+
+const INITIAL_MEDIA: Media = {
+  song: null,
+  song_error: null,
+  posters: [null, null, null],
+  poster_errors: [null, null, null],
+  trailer: null,
+  trailer_error: null,
+};
+
+const INITIAL_STATUS: StreamStatus = {
+  copy: "pending",
+  song: "pending",
+  posters: ["pending", "pending", "pending"],
+  trailer: "pending",
+};
+
+type StreamEvent =
+  | { type: "repo"; data: RepoMeta }
+  | { type: "brief"; data: Brief }
+  | { type: "song"; data: SongResult | null; error?: string }
+  | {
+      type: "poster";
+      index: number;
+      data: PosterResult | null;
+      error?: string;
+    }
+  | { type: "trailer"; data: TrailerResult | null; error?: string }
+  | { type: "done" }
+  | { type: "error"; error: string };
 
 export default function TryPage() {
   const [repo, setRepo] = useState("");
@@ -80,7 +113,10 @@ export default function TryPage() {
   const [keyOpen, setKeyOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<GenerateResponse | null>(null);
+  const [repoData, setRepoData] = useState<RepoMeta | null>(null);
+  const [briefData, setBriefData] = useState<Brief | null>(null);
+  const [media, setMedia] = useState<Media>(INITIAL_MEDIA);
+  const [status, setStatus] = useState<StreamStatus>(INITIAL_STATUS);
 
   useEffect(() => {
     const saved = localStorage.getItem(ACE_TOKEN_KEY);
@@ -98,7 +134,11 @@ export default function TryPage() {
     if (!repo.trim()) return;
     setLoading(true);
     setError(null);
-    setResult(null);
+    setRepoData(null);
+    setBriefData(null);
+    setMedia(INITIAL_MEDIA);
+    setStatus(INITIAL_STATUS);
+
     try {
       const res = await fetch("/api/generate", {
         method: "POST",
@@ -108,13 +148,91 @@ export default function TryPage() {
         },
         body: JSON.stringify({ repo: repo.trim() }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data?.error || `Request failed (${res.status})`);
-      setResult(data as GenerateResponse);
+
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => null);
+        throw new Error(
+          errBody?.error || `Request failed (${res.status})`
+        );
+      }
+
+      const reader = res.body?.getReader();
+      if (!reader) throw new Error("No response body");
+
+      const decoder = new TextDecoder();
+      let buf = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const lines = buf.split("\n");
+        buf = lines.pop() ?? "";
+        for (const raw of lines) {
+          const line = raw.trim();
+          if (!line) continue;
+          let evt: StreamEvent;
+          try {
+            evt = JSON.parse(line) as StreamEvent;
+          } catch {
+            continue;
+          }
+          handleEvent(evt);
+        }
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown error");
     } finally {
       setLoading(false);
+    }
+  }
+
+  function handleEvent(evt: StreamEvent) {
+    switch (evt.type) {
+      case "repo":
+        setRepoData(evt.data);
+        return;
+      case "brief":
+        setBriefData(evt.data);
+        setStatus((s) => ({ ...s, copy: "done" }));
+        return;
+      case "song":
+        setMedia((m) => ({
+          ...m,
+          song: evt.data,
+          song_error: evt.error ?? null,
+        }));
+        setStatus((s) => ({ ...s, song: evt.error ? "error" : "done" }));
+        return;
+      case "poster": {
+        const i = evt.index;
+        if (i < 0 || i > 2) return;
+        setMedia((m) => {
+          const posters = [...m.posters];
+          const errors = [...m.poster_errors];
+          posters[i] = evt.data;
+          errors[i] = evt.error ?? null;
+          return { ...m, posters, poster_errors: errors };
+        });
+        setStatus((s) => {
+          const ps = [...s.posters] as [Status, Status, Status];
+          ps[i] = evt.error ? "error" : "done";
+          return { ...s, posters: ps };
+        });
+        return;
+      }
+      case "trailer":
+        setMedia((m) => ({
+          ...m,
+          trailer: evt.data,
+          trailer_error: evt.error ?? null,
+        }));
+        setStatus((s) => ({ ...s, trailer: evt.error ? "error" : "done" }));
+        return;
+      case "error":
+        setError(evt.error);
+        return;
+      case "done":
+        return;
     }
   }
 
@@ -223,9 +341,17 @@ export default function TryPage() {
             </div>
           ) : null}
 
-          {loading && !result ? <Pipeline loading /> : null}
-          {result ? <BriefResult data={result} /> : null}
-          {!loading && !result ? <Pipeline /> : null}
+          {repoData || briefData || loading ? (
+            <ProgressiveResult
+              repo={repoData}
+              brief={briefData}
+              media={media}
+              status={status}
+              loading={loading}
+            />
+          ) : (
+            <Pipeline />
+          )}
 
           <p className="mt-10 text-xs text-white/40">
             <span className="font-mono">~60s</span> · four parallel streams ·
@@ -368,100 +494,220 @@ function KeyModal({
   );
 }
 
-function Pipeline({ loading = false }: { loading?: boolean }) {
-  const streams = [
-    { icon: MusicNote01Icon, label: "Song", hint: "Suno · 30s" },
-    { icon: ImageAdd02Icon, label: "Posters", hint: "Midjourney · ×3" },
-    { icon: FilmRoll01Icon, label: "Trailer", hint: "Veo · 5–10s" },
-    { icon: TextFontIcon, label: "Copy", hint: "README + thread" },
+function Pipeline({
+  loading = false,
+  status,
+}: {
+  loading?: boolean;
+  status?: StreamStatus;
+}) {
+  const postersStatus: Status = status
+    ? rollupPosters(status.posters)
+    : "pending";
+  const postersHint = status
+    ? `Midjourney · ${status.posters.filter((s) => s !== "pending").length}/3`
+    : "Midjourney · ×3";
+
+  const streams: {
+    icon: typeof MusicNote01Icon;
+    label: string;
+    hint: string;
+    state: Status;
+  }[] = [
+    {
+      icon: TextFontIcon,
+      label: "Copy",
+      hint: "README + thread",
+      state: status?.copy ?? "pending",
+    },
+    {
+      icon: MusicNote01Icon,
+      label: "Song",
+      hint: "Suno · 30s",
+      state: status?.song ?? "pending",
+    },
+    {
+      icon: ImageAdd02Icon,
+      label: "Posters",
+      hint: postersHint,
+      state: postersStatus,
+    },
+    {
+      icon: FilmRoll01Icon,
+      label: "Trailer",
+      hint: "Veo · ~1–2 min",
+      state: status?.trailer ?? "pending",
+    },
   ];
+
   return (
     <div className="mt-12 grid w-full grid-cols-2 gap-3 sm:grid-cols-4">
-      {streams.map((s) => (
-        <div
-          key={s.label}
-          className="flex flex-col items-start gap-2 rounded-xl border border-white/10 bg-white/[0.02] p-4 text-left backdrop-blur-md"
-        >
-          <div className="flex w-full items-center justify-between">
-            <HugeiconsIcon
-              icon={s.icon}
-              size={16}
-              strokeWidth={1.5}
-              className="text-white/75"
-            />
-            <HugeiconsIcon
-              icon={loading ? Loading03Icon : FlashIcon}
-              size={10}
-              strokeWidth={1.8}
-              className={`text-white/40 ${loading ? "animate-spin" : ""}`}
-            />
-          </div>
-          <div className="text-sm font-medium tracking-tight text-white">
-            {s.label}
-          </div>
-          <div className="font-mono text-[10px] uppercase tracking-wider text-white/40">
-            {s.hint}
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function BriefResult({ data }: { data: GenerateResponse }) {
-  const { repo, brief, media } = data;
-  return (
-    <div className="mt-10 flex w-full flex-col gap-4 text-left">
-      <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-5 backdrop-blur-md">
-        <div className="flex items-center gap-3">
-          {repo.avatar_url ? (
-            /* eslint-disable-next-line @next/next/no-img-element */
-            <img
-              src={repo.avatar_url}
-              alt=""
-              className="h-10 w-10 rounded-full border border-white/10"
-            />
-          ) : null}
-          <div className="flex-1">
-            <a
-              href={repo.html_url}
-              target="_blank"
-              rel="noreferrer"
-              className="font-mono text-sm text-white hover:underline"
-            >
-              {repo.full_name}
-            </a>
-            <div className="text-xs text-white/50">
-              {repo.language ? `${repo.language} · ` : ""}
-              {repo.stars.toLocaleString()} ★
+      {streams.map((s) => {
+        const showSpinner = loading && s.state === "pending";
+        const indicatorIcon =
+          s.state === "done"
+            ? Tick02Icon
+            : s.state === "error"
+            ? Cancel01Icon
+            : showSpinner
+            ? Loading03Icon
+            : FlashIcon;
+        const indicatorClass =
+          s.state === "done"
+            ? "text-emerald-300"
+            : s.state === "error"
+            ? "text-red-300"
+            : showSpinner
+            ? "text-white/60 animate-spin"
+            : "text-white/40";
+        return (
+          <div
+            key={s.label}
+            className="flex flex-col items-start gap-2 rounded-xl border border-white/10 bg-white/[0.02] p-4 text-left backdrop-blur-md"
+          >
+            <div className="flex w-full items-center justify-between">
+              <HugeiconsIcon
+                icon={s.icon}
+                size={16}
+                strokeWidth={1.5}
+                className="text-white/75"
+              />
+              <HugeiconsIcon
+                icon={indicatorIcon}
+                size={10}
+                strokeWidth={1.8}
+                className={indicatorClass}
+              />
+            </div>
+            <div className="text-sm font-medium tracking-tight text-white">
+              {s.label}
+            </div>
+            <div className="font-mono text-[10px] uppercase tracking-wider text-white/40">
+              {s.hint}
             </div>
           </div>
-        </div>
-        {repo.description ? (
-          <p className="mt-3 text-[13px] leading-relaxed text-white/70">
-            {repo.description}
-          </p>
-        ) : null}
-      </div>
-
-      {media ? <MediaSection media={media} /> : null}
-      {media ? <CostReceipt media={media} /> : null}
-
-      <Section title="Trailer prompt" body={brief.trailer_prompt} />
-      <Section title="Song prompt" body={brief.song_prompt} />
-      <ListSection title="Poster prompts" items={brief.poster_prompts} mono />
-      <Section title="New README (markdown)" body={brief.new_readme} pre />
-      <ListSection title="Tweet thread" items={brief.tweet_thread} />
+        );
+      })}
     </div>
   );
 }
 
-function MediaSection({ media }: { media: Media }) {
+function rollupPosters(ps: [Status, Status, Status]): Status {
+  if (ps.every((p) => p === "pending")) return "pending";
+  if (ps.some((p) => p === "pending")) return "pending";
+  if (ps.every((p) => p === "error")) return "error";
+  return "done";
+}
+
+function ProgressiveResult({
+  repo,
+  brief,
+  media,
+  status,
+  loading,
+}: {
+  repo: RepoMeta | null;
+  brief: Brief | null;
+  media: Media;
+  status: StreamStatus;
+  loading: boolean;
+}) {
+  const allDone =
+    status.copy === "done" &&
+    status.song !== "pending" &&
+    status.posters.every((s) => s !== "pending") &&
+    status.trailer !== "pending";
+
+  const showPipeline = loading && !allDone;
+
+  return (
+    <div className="mt-10 flex w-full flex-col gap-4 text-left">
+      {repo ? <RepoCard repo={repo} /> : <RepoCardSkeleton />}
+
+      {showPipeline ? <Pipeline loading status={status} /> : null}
+
+      <MediaSection media={media} status={status} />
+
+      {brief ? <CostReceipt media={media} status={status} /> : null}
+
+      {brief ? <Section title="Trailer prompt" body={brief.trailer_prompt} /> : null}
+      {brief ? <Section title="Song prompt" body={brief.song_prompt} /> : null}
+      {brief ? (
+        <ListSection title="Poster prompts" items={brief.poster_prompts} mono />
+      ) : null}
+      {brief ? (
+        <Section title="New README (markdown)" body={brief.new_readme} pre />
+      ) : null}
+      {brief ? (
+        <ListSection title="Tweet thread" items={brief.tweet_thread} />
+      ) : null}
+    </div>
+  );
+}
+
+function RepoCard({ repo }: { repo: RepoMeta }) {
+  return (
+    <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-5 backdrop-blur-md">
+      <div className="flex items-center gap-3">
+        {repo.avatar_url ? (
+          /* eslint-disable-next-line @next/next/no-img-element */
+          <img
+            src={repo.avatar_url}
+            alt=""
+            className="h-10 w-10 rounded-full border border-white/10"
+          />
+        ) : null}
+        <div className="flex-1">
+          <a
+            href={repo.html_url}
+            target="_blank"
+            rel="noreferrer"
+            className="font-mono text-sm text-white hover:underline"
+          >
+            {repo.full_name}
+          </a>
+          <div className="text-xs text-white/50">
+            {repo.language ? `${repo.language} · ` : ""}
+            {repo.stars.toLocaleString()} ★
+          </div>
+        </div>
+      </div>
+      {repo.description ? (
+        <p className="mt-3 text-[13px] leading-relaxed text-white/70">
+          {repo.description}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function RepoCardSkeleton() {
+  return (
+    <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-5 backdrop-blur-md">
+      <div className="flex items-center gap-3">
+        <div className="h-10 w-10 animate-pulse rounded-full border border-white/10 bg-white/5" />
+        <div className="flex-1 space-y-2">
+          <div className="h-3 w-40 animate-pulse rounded bg-white/10" />
+          <div className="h-2.5 w-24 animate-pulse rounded bg-white/5" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MediaSection({
+  media,
+  status,
+}: {
+  media: Media;
+  status: StreamStatus;
+}) {
   const hasTrailer = !!media.trailer?.video_url;
   const hasSong = !!media.song?.audio_url;
-  const posters = media.posters.filter(
-    (p): p is PosterResult => !!p?.image_url
-  );
+  const posters = media.posters
+    .map((p, i) => (p?.image_url ? { p, i } : null))
+    .filter((x): x is { p: PosterResult; i: number } => !!x);
+  const postersDone = status.posters.filter((s) => s !== "pending").length;
 
   return (
     <div className="flex flex-col gap-4">
@@ -469,9 +715,7 @@ function MediaSection({ media }: { media: Media }) {
         <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-5 backdrop-blur-md">
           <div className="mb-3 flex items-center justify-between text-[11px] uppercase tracking-[0.22em] text-white/40">
             <span>Trailer</span>
-            <span className="font-mono normal-case tracking-normal">
-              Veo
-            </span>
+            <span className="font-mono normal-case tracking-normal">Veo</span>
           </div>
           <video
             controls
@@ -480,6 +724,13 @@ function MediaSection({ media }: { media: Media }) {
             className="w-full rounded-xl border border-white/10 bg-black"
           />
         </div>
+      ) : status.trailer === "pending" ? (
+        <MediaPlaceholder
+          icon={FilmRoll01Icon}
+          label="Trailer"
+          source="Veo"
+          hint="Rendering ~1–2 min"
+        />
       ) : media.trailer_error ? (
         <ErrorNote label="Trailer" message={media.trailer_error} />
       ) : null}
@@ -487,7 +738,9 @@ function MediaSection({ media }: { media: Media }) {
       {hasSong ? (
         <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-5 backdrop-blur-md">
           <div className="mb-3 flex items-center justify-between text-[11px] uppercase tracking-[0.22em] text-white/40">
-            <span>Theme song{media.song?.title ? ` · ${media.song.title}` : ""}</span>
+            <span>
+              Theme song{media.song?.title ? ` · ${media.song.title}` : ""}
+            </span>
             <span className="font-mono normal-case tracking-normal">Suno</span>
           </div>
           {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
@@ -497,45 +750,117 @@ function MediaSection({ media }: { media: Media }) {
             className="w-full"
           />
         </div>
+      ) : status.song === "pending" ? (
+        <MediaPlaceholder
+          icon={MusicNote01Icon}
+          label="Theme song"
+          source="Suno"
+          hint="Composing ~30s"
+        />
       ) : media.song_error ? (
         <ErrorNote label="Song" message={media.song_error} />
       ) : null}
 
-      {posters.length > 0 ? (
+      {posters.length > 0 || postersDone < 3 ? (
         <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-5 backdrop-blur-md">
           <div className="mb-3 flex items-center justify-between text-[11px] uppercase tracking-[0.22em] text-white/40">
             <span>Posters</span>
             <span className="font-mono normal-case tracking-normal">
-              Midjourney · ×{posters.length}
+              Midjourney · {postersDone}/3
             </span>
           </div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-            {posters.map((p, i) => (
-              /* eslint-disable-next-line @next/next/no-img-element */
-              <a
-                key={i}
-                href={p.image_url}
-                target="_blank"
-                rel="noreferrer"
-                className="overflow-hidden rounded-xl border border-white/10 bg-black"
-              >
-                <img
-                  src={p.image_url}
-                  alt={`Poster ${i + 1}`}
-                  className="h-full w-full object-cover"
-                />
-              </a>
-            ))}
+            {[0, 1, 2].map((i) => {
+              const url = media.posters[i]?.image_url;
+              if (url) {
+                return (
+                  /* eslint-disable-next-line @next/next/no-img-element */
+                  <a
+                    key={i}
+                    href={url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="overflow-hidden rounded-xl border border-white/10 bg-black"
+                  >
+                    <img
+                      src={url}
+                      alt={`Poster ${i + 1}`}
+                      className="h-full w-full object-cover"
+                    />
+                  </a>
+                );
+              }
+              if (status.posters[i] === "pending") {
+                return (
+                  <div
+                    key={i}
+                    className="flex aspect-square items-center justify-center rounded-xl border border-white/10 bg-white/[0.02]"
+                  >
+                    <HugeiconsIcon
+                      icon={Loading03Icon}
+                      size={16}
+                      strokeWidth={1.5}
+                      className="animate-spin text-white/40"
+                    />
+                  </div>
+                );
+              }
+              return (
+                <div
+                  key={i}
+                  className="flex aspect-square items-center justify-center rounded-xl border border-red-500/20 bg-red-500/5 text-[11px] text-red-300/70"
+                >
+                  failed
+                </div>
+              );
+            })}
           </div>
         </div>
       ) : null}
 
-      {media.poster_errors.some(Boolean) ? (
+      {media.poster_errors.some(Boolean) &&
+      status.posters.every((s) => s !== "pending") ? (
         <ErrorNote
           label="Posters"
           message={media.poster_errors.filter(Boolean).join(" · ")}
         />
       ) : null}
+    </div>
+  );
+}
+
+function MediaPlaceholder({
+  icon,
+  label,
+  source,
+  hint,
+}: {
+  icon: typeof MusicNote01Icon;
+  label: string;
+  source: string;
+  hint: string;
+}) {
+  return (
+    <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-5 backdrop-blur-md">
+      <div className="mb-3 flex items-center justify-between text-[11px] uppercase tracking-[0.22em] text-white/40">
+        <span>{label}</span>
+        <span className="font-mono normal-case tracking-normal">{source}</span>
+      </div>
+      <div className="flex items-center gap-3 rounded-xl border border-white/10 bg-black/40 px-4 py-6">
+        <HugeiconsIcon
+          icon={icon}
+          size={18}
+          strokeWidth={1.5}
+          className="text-white/40"
+        />
+        <div className="flex-1 text-[13px] text-white/50">{hint}</div>
+        <HugeiconsIcon
+          icon={Loading03Icon}
+          size={14}
+          strokeWidth={1.8}
+          className="animate-spin text-white/50"
+        />
+      </div>
     </div>
   );
 }
@@ -616,7 +941,13 @@ const PRICES = {
   trailer: 0.35,
 } as const;
 
-function CostReceipt({ media }: { media: Media }) {
+function CostReceipt({
+  media,
+  status,
+}: {
+  media: Media;
+  status: StreamStatus;
+}) {
   const lines: { label: string; amount: number; hint?: string }[] = [];
   lines.push({
     label: "Ace Chat · creative brief",
@@ -637,6 +968,11 @@ function CostReceipt({ media }: { media: Media }) {
     lines.push({ label: "Veo · cinematic trailer", amount: PRICES.trailer });
   }
 
+  const stillPending =
+    status.song === "pending" ||
+    status.posters.some((s) => s === "pending") ||
+    status.trailer === "pending";
+
   const subtotal = lines.reduce((s, l) => s + l.amount, 0);
   const x402Discount = subtotal * 0.05;
   const total = subtotal - x402Discount;
@@ -650,10 +986,22 @@ function CostReceipt({ media }: { media: Media }) {
     <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-5 backdrop-blur-md">
       <div className="mb-4 flex items-center justify-between text-[11px] uppercase tracking-[0.22em] text-white/40">
         <span>Payment receipt</span>
-        <span className="inline-flex items-center gap-1 rounded-full border border-emerald-400/30 bg-emerald-400/10 px-2 py-0.5 font-mono normal-case tracking-normal text-[10px] text-emerald-300">
-          <HugeiconsIcon icon={Tick02Icon} size={10} strokeWidth={2} />
-          Settled via x402
-        </span>
+        {stillPending ? (
+          <span className="inline-flex items-center gap-1 rounded-full border border-white/15 bg-white/5 px-2 py-0.5 font-mono normal-case tracking-normal text-[10px] text-white/60">
+            <HugeiconsIcon
+              icon={Loading03Icon}
+              size={10}
+              strokeWidth={2}
+              className="animate-spin"
+            />
+            Settling…
+          </span>
+        ) : (
+          <span className="inline-flex items-center gap-1 rounded-full border border-emerald-400/30 bg-emerald-400/10 px-2 py-0.5 font-mono normal-case tracking-normal text-[10px] text-emerald-300">
+            <HugeiconsIcon icon={Tick02Icon} size={10} strokeWidth={2} />
+            Settled via x402
+          </span>
+        )}
       </div>
 
       <ul className="flex flex-col gap-2 font-mono text-[13px] text-white/75">

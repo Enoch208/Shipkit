@@ -5,12 +5,10 @@ import {
   generatePoster,
   generateSong,
   generateTrailer,
-  PosterResult,
-  SongResult,
-  TrailerResult,
 } from "@/lib/ace-media";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
 const SYSTEM_PROMPT = `You are a launch copywriter for a product-launch kit generator. Given a GitHub repo's metadata and README, return ONLY a JSON object (no prose, no markdown fences) with these fields:
@@ -31,112 +29,148 @@ type Brief = {
   tweet_thread?: string[];
 };
 
-type Settled<T> = { ok: true; value: T } | { ok: false; error: string };
-
-function wrap<T>(p: Promise<T>): Promise<Settled<T>> {
-  return p
-    .then((value) => ({ ok: true as const, value }))
-    .catch((e: unknown) => ({
-      ok: false as const,
-      error: e instanceof Error ? e.message : String(e),
-    }));
-}
-
-function settledOrNull<T>(s: Settled<T>): T | null {
-  return s.ok ? s.value : null;
+function errMessage(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
 }
 
 export async function POST(req: NextRequest) {
-  try {
-    const body = await req.json().catch(() => ({}));
-    const repoInput = body?.repo;
-    const skipMedia = body?.skipMedia === true;
+  const body = await req.json().catch(() => ({}));
+  const repoInput = body?.repo;
+  const skipMedia = body?.skipMedia === true;
 
-    if (!repoInput || typeof repoInput !== "string") {
-      return NextResponse.json(
-        { error: "Missing 'repo' in request body." },
-        { status: 400 }
-      );
-    }
-
-    const aceToken =
-      req.headers.get("x-ace-token") || process.env.ACEDATA_API_TOKEN;
-
-    if (!aceToken) {
-      return NextResponse.json(
-        {
-          error:
-            "No Ace API key. Set one via the 'Ace API key' button, or configure ACEDATA_API_TOKEN on the server.",
-        },
-        { status: 401 }
-      );
-    }
-
-    const repo = await fetchRepo(repoInput);
-
-    const userPrompt = [
-      `Repo: ${repo.full_name}`,
-      `Description: ${repo.description ?? "(none)"}`,
-      `Homepage: ${repo.homepage ?? "(none)"}`,
-      `Language: ${repo.language ?? "(unknown)"}`,
-      `Topics: ${repo.topics.join(", ") || "(none)"}`,
-      `Stars: ${repo.stars}`,
-      "",
-      "README:",
-      repo.readme || "(no README)",
-    ].join("\n");
-
-    const brief = (await aceChatJson(
-      aceToken,
-      SYSTEM_PROMPT,
-      userPrompt
-    )) as Brief;
-
-    if (skipMedia) {
-      return NextResponse.json({ repo, brief, media: null });
-    }
-
-    const posterPrompts = (brief.poster_prompts ?? []).slice(0, 3);
-    while (posterPrompts.length < 3) posterPrompts.push("");
-
-    const tasks: [
-      Promise<Settled<SongResult>>,
-      Promise<Settled<PosterResult>>,
-      Promise<Settled<PosterResult>>,
-      Promise<Settled<PosterResult>>,
-      Promise<Settled<TrailerResult>>
-    ] = [
-      brief.song_prompt
-        ? wrap(generateSong(aceToken, brief.song_prompt))
-        : Promise.resolve({ ok: false, error: "no song prompt" } as const),
-      posterPrompts[0]
-        ? wrap(generatePoster(aceToken, posterPrompts[0]))
-        : Promise.resolve({ ok: false, error: "no poster prompt" } as const),
-      posterPrompts[1]
-        ? wrap(generatePoster(aceToken, posterPrompts[1]))
-        : Promise.resolve({ ok: false, error: "no poster prompt" } as const),
-      posterPrompts[2]
-        ? wrap(generatePoster(aceToken, posterPrompts[2]))
-        : Promise.resolve({ ok: false, error: "no poster prompt" } as const),
-      brief.trailer_prompt
-        ? wrap(generateTrailer(aceToken, brief.trailer_prompt))
-        : Promise.resolve({ ok: false, error: "no trailer prompt" } as const),
-    ];
-
-    const [songR, p1, p2, p3, trailerR] = await Promise.all(tasks);
-
-    const media = {
-      song: settledOrNull(songR),
-      song_error: songR.ok ? null : songR.error,
-      posters: [p1, p2, p3].map((p) => settledOrNull(p)),
-      poster_errors: [p1, p2, p3].map((p) => (p.ok ? null : p.error)),
-      trailer: settledOrNull(trailerR),
-      trailer_error: trailerR.ok ? null : trailerR.error,
-    };
-
-    return NextResponse.json({ repo, brief, media });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Unknown error";
-    return NextResponse.json({ error: message }, { status: 500 });
+  if (!repoInput || typeof repoInput !== "string") {
+    return NextResponse.json(
+      { error: "Missing 'repo' in request body." },
+      { status: 400 }
+    );
   }
+
+  const aceToken =
+    req.headers.get("x-ace-token") || process.env.ACEDATA_API_TOKEN;
+
+  if (!aceToken) {
+    return NextResponse.json(
+      {
+        error:
+          "No Ace API key. Set one via the 'Ace API key' button, or configure ACEDATA_API_TOKEN on the server.",
+      },
+      { status: 401 }
+    );
+  }
+
+  const encoder = new TextEncoder();
+
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      let closed = false;
+      const send = (event: object) => {
+        if (closed) return;
+        controller.enqueue(encoder.encode(JSON.stringify(event) + "\n"));
+      };
+      const close = () => {
+        if (closed) return;
+        closed = true;
+        controller.close();
+      };
+
+      try {
+        const repo = await fetchRepo(repoInput);
+        send({ type: "repo", data: repo });
+
+        const userPrompt = [
+          `Repo: ${repo.full_name}`,
+          `Description: ${repo.description ?? "(none)"}`,
+          `Homepage: ${repo.homepage ?? "(none)"}`,
+          `Language: ${repo.language ?? "(unknown)"}`,
+          `Topics: ${repo.topics.join(", ") || "(none)"}`,
+          `Stars: ${repo.stars}`,
+          "",
+          "README:",
+          repo.readme || "(no README)",
+        ].join("\n");
+
+        const brief = (await aceChatJson(
+          aceToken,
+          SYSTEM_PROMPT,
+          userPrompt
+        )) as Brief;
+        send({ type: "brief", data: brief });
+
+        if (skipMedia) {
+          send({ type: "done" });
+          close();
+          return;
+        }
+
+        const posterPrompts = (brief.poster_prompts ?? []).slice(0, 3);
+        while (posterPrompts.length < 3) posterPrompts.push("");
+
+        const tasks: Promise<unknown>[] = [];
+
+        if (brief.song_prompt) {
+          tasks.push(
+            generateSong(aceToken, brief.song_prompt)
+              .then((data) => send({ type: "song", data }))
+              .catch((e) =>
+                send({ type: "song", data: null, error: errMessage(e) })
+              )
+          );
+        } else {
+          send({ type: "song", data: null, error: "no song prompt" });
+        }
+
+        for (let i = 0; i < 3; i++) {
+          const p = posterPrompts[i];
+          if (p) {
+            tasks.push(
+              generatePoster(aceToken, p)
+                .then((data) => send({ type: "poster", index: i, data }))
+                .catch((e) =>
+                  send({
+                    type: "poster",
+                    index: i,
+                    data: null,
+                    error: errMessage(e),
+                  })
+                )
+            );
+          } else {
+            send({
+              type: "poster",
+              index: i,
+              data: null,
+              error: "no poster prompt",
+            });
+          }
+        }
+
+        if (brief.trailer_prompt) {
+          tasks.push(
+            generateTrailer(aceToken, brief.trailer_prompt)
+              .then((data) => send({ type: "trailer", data }))
+              .catch((e) =>
+                send({ type: "trailer", data: null, error: errMessage(e) })
+              )
+          );
+        } else {
+          send({ type: "trailer", data: null, error: "no trailer prompt" });
+        }
+
+        await Promise.all(tasks);
+        send({ type: "done" });
+      } catch (err) {
+        send({ type: "error", error: errMessage(err) });
+      } finally {
+        close();
+      }
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "application/x-ndjson; charset=utf-8",
+      "Cache-Control": "no-cache, no-transform",
+      "X-Accel-Buffering": "no",
+    },
+  });
 }
