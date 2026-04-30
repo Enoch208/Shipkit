@@ -114,7 +114,7 @@ function HeroSection() {
         </div>
 
         <h1 className="mt-8 text-5xl font-bold leading-[1.05] tracking-tight text-white sm:text-6xl md:text-7xl">
-          Launch any repo.
+          Launch any repo or URL.
           <br />
           In 60 seconds.
           <br />
@@ -124,7 +124,7 @@ function HeroSection() {
         </h1>
 
         <p className="mt-6 max-w-xl text-[15px] leading-relaxed text-white/60">
-          Paste a GitHub URL. Get a cinematic trailer, theme song, three
+          Paste a repo or URL. Get a cinematic trailer, theme song, three
           posters, and rewritten launch copy back in 60 seconds — billed per
           request in USDC, not per month.
         </p>
@@ -221,8 +221,8 @@ function HowItWorks() {
     {
       num: "01",
       icon: Github01Icon,
-      title: "Paste a repo",
-      body: "Any public GitHub URL. We pull the README, description, and stars to build a brief.",
+      title: "Paste a repo or URL",
+      body: "Any public GitHub repo or website. We pull the README, marketing copy, and metadata to build a brief.",
     },
     {
       num: "02",
@@ -244,7 +244,7 @@ function HowItWorks() {
         eyebrow="How it works"
         title={
           <>
-            One URL in.
+            One repo or URL in.
             <br />
             <span className="font-serif font-normal italic text-[#f0dfb8]">
               A launch kit out.
@@ -542,7 +542,7 @@ function FinalCTA() {
           </span>
         </h2>
         <p className="mt-5 max-w-md text-[15px] leading-relaxed text-white/60">
-          The first kit is on us. Paste a repo, we'll do the rest.
+          The first kit is on us. Paste a repo or URL, we'll do the rest.
         </p>
         <Link
           href="/try"

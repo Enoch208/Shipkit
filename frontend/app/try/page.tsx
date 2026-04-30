@@ -291,7 +291,7 @@ export default function TryPage() {
           </div>
 
           <h1 className="mt-7 text-4xl font-semibold leading-[1.1] tracking-tight text-white sm:text-5xl">
-            Paste a repo.
+            Paste a repo or URL.
             <br />
             We'll ship the rest.
           </h1>
