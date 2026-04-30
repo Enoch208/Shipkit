@@ -101,7 +101,7 @@ function HeroSection() {
         }}
       />
 
-      <div className="relative z-10 flex w-full max-w-3xl flex-col items-center text-center">
+      <div className="relative z-10 flex w-full max-w-5xl flex-col items-center text-center">
         <div className="inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-white/5 px-3 py-1 text-xs text-white/80 backdrop-blur-md">
           <HugeiconsIcon
             icon={StarIcon}
@@ -116,10 +116,8 @@ function HeroSection() {
         <h1 className="mt-8 text-5xl font-bold leading-[1.05] tracking-tight text-white sm:text-6xl md:text-7xl">
           Launch any repo or URL.
           <br />
-          In 60 seconds.
-          <br />
           <span className="font-serif font-normal italic tracking-tight text-[#f0dfb8]">
-            — For $0.50.
+            In 60 seconds, for $0.50.
           </span>
         </h1>
 
