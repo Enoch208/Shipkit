@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { fetchRepo } from "@/lib/github";
+import { fetchSource, sourceToPrompt } from "@/lib/source";
 import { aceChatJson } from "@/lib/ace";
 import {
   generatePoster,
@@ -11,15 +11,15 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
-const SYSTEM_PROMPT = `You are a launch copywriter for a product-launch kit generator. Given a GitHub repo's metadata and README, return ONLY a JSON object (no prose, no markdown fences) with these fields:
+const SYSTEM_PROMPT = `You are a launch copywriter for a product-launch kit generator. Given a software project's metadata and content (either a GitHub repo with README, or a website's landing page), return ONLY a JSON object (no prose, no markdown fences) with these fields:
 
 - trailer_prompt: 1-2 sentences describing a cinematic 5-10s video trailer (visual scene only, no on-screen text).
 - song_prompt: 1 sentence describing a 30s launch anthem — vibe, tempo, instrumentation.
 - poster_prompts: array of 3 Midjourney prompts for 16:9 hero, 1:1 square, and 9:16 vertical poster. Each must include Midjourney modifiers like --ar and --v 6.
-- new_readme: a rewritten README in markdown (250-500 words) with a sharp hook, features bullets, install snippet, and link to the original.
+- new_readme: a launch-page markdown writeup (250-500 words) with a sharp hook, features bullets, a quickstart snippet if relevant, and a link back to the source.
 - tweet_thread: array of 5 short tweets (each under 240 chars) launching the project. First is the hook, last is a CTA.
 
-Be concrete, visual, and on-brand for the repo. No generic marketing fluff.`;
+Be concrete, visual, and on-brand for the project. No generic marketing fluff.`;
 
 type Brief = {
   trailer_prompt?: string;
@@ -35,12 +35,12 @@ function errMessage(e: unknown): string {
 
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
-  const repoInput = body?.repo;
+  const sourceInput = body?.repo ?? body?.source;
   const skipMedia = body?.skipMedia === true;
 
-  if (!repoInput || typeof repoInput !== "string") {
+  if (!sourceInput || typeof sourceInput !== "string") {
     return NextResponse.json(
-      { error: "Missing 'repo' in request body." },
+      { error: "Missing 'source' or 'repo' in request body." },
       { status: 400 }
     );
   }
@@ -74,25 +74,13 @@ export async function POST(req: NextRequest) {
       };
 
       try {
-        const repo = await fetchRepo(repoInput);
-        send({ type: "repo", data: repo });
-
-        const userPrompt = [
-          `Repo: ${repo.full_name}`,
-          `Description: ${repo.description ?? "(none)"}`,
-          `Homepage: ${repo.homepage ?? "(none)"}`,
-          `Language: ${repo.language ?? "(unknown)"}`,
-          `Topics: ${repo.topics.join(", ") || "(none)"}`,
-          `Stars: ${repo.stars}`,
-          "",
-          "README:",
-          repo.readme || "(no README)",
-        ].join("\n");
+        const source = await fetchSource(sourceInput);
+        send({ type: "source", data: source });
 
         const brief = (await aceChatJson(
           aceToken,
           SYSTEM_PROMPT,
-          userPrompt
+          sourceToPrompt(source)
         )) as Brief;
         send({ type: "brief", data: brief });
 

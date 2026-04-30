@@ -19,12 +19,12 @@ import {
   Tick02Icon,
 } from "@hugeicons/core-free-icons";
 
-const famousRepos = [
+const famousSources = [
   "vercel/next.js",
   "facebook/react",
-  "tailwindlabs/tailwindcss",
-  "openai/whisper",
-  "tinygrad/tinygrad",
+  "linear.app",
+  "anthropic.com",
+  "tldraw.com",
 ];
 
 const ACE_TOKEN_KEY = "shipkit.aceToken";
@@ -45,6 +45,19 @@ type RepoMeta = {
   html_url: string;
   avatar_url: string;
 };
+
+type WebsiteMeta = {
+  url: string;
+  domain: string;
+  title: string;
+  description: string | null;
+  image_url: string | null;
+  favicon_url: string | null;
+};
+
+type Source =
+  | { kind: "github"; meta: RepoMeta }
+  | { kind: "website"; meta: WebsiteMeta };
 
 type SongResult = {
   audio_url: string | null;
@@ -94,7 +107,7 @@ const INITIAL_STATUS: StreamStatus = {
 };
 
 type StreamEvent =
-  | { type: "repo"; data: RepoMeta }
+  | { type: "source"; data: Source }
   | { type: "brief"; data: Brief }
   | { type: "song"; data: SongResult | null; error?: string }
   | {
@@ -108,12 +121,12 @@ type StreamEvent =
   | { type: "error"; error: string };
 
 export default function TryPage() {
-  const [repo, setRepo] = useState("");
+  const [input, setInput] = useState("");
   const [aceToken, setAceToken] = useState("");
   const [keyOpen, setKeyOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [repoData, setRepoData] = useState<RepoMeta | null>(null);
+  const [source, setSource] = useState<Source | null>(null);
   const [briefData, setBriefData] = useState<Brief | null>(null);
   const [media, setMedia] = useState<Media>(INITIAL_MEDIA);
   const [status, setStatus] = useState<StreamStatus>(INITIAL_STATUS);
@@ -131,10 +144,10 @@ export default function TryPage() {
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
-    if (!repo.trim()) return;
+    if (!input.trim()) return;
     setLoading(true);
     setError(null);
-    setRepoData(null);
+    setSource(null);
     setBriefData(null);
     setMedia(INITIAL_MEDIA);
     setStatus(INITIAL_STATUS);
@@ -146,7 +159,7 @@ export default function TryPage() {
           "Content-Type": "application/json",
           ...(aceToken ? { "x-ace-token": aceToken } : {}),
         },
-        body: JSON.stringify({ repo: repo.trim() }),
+        body: JSON.stringify({ source: input.trim() }),
       });
 
       if (!res.ok) {
@@ -201,8 +214,8 @@ export default function TryPage() {
 
   function handleEvent(evt: StreamEvent) {
     switch (evt.type) {
-      case "repo":
-        setRepoData(evt.data);
+      case "source":
+        setSource(evt.data);
         return;
       case "brief":
         setBriefData(evt.data);
@@ -298,16 +311,16 @@ export default function TryPage() {
               />
               <input
                 type="text"
-                name="repo"
-                value={repo}
-                onChange={(e) => setRepo(e.target.value)}
-                placeholder="github.com/vercel/next.js"
+                name="source"
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                placeholder="github.com/vercel/next.js or linear.app"
                 disabled={loading}
                 className="flex-1 bg-transparent py-2.5 text-[15px] text-white placeholder:text-white/30 focus:outline-none disabled:opacity-50"
               />
               <button
                 type="submit"
-                disabled={loading || !repo.trim()}
+                disabled={loading || !input.trim()}
                 className="inline-flex items-center gap-1.5 rounded-full bg-white px-5 py-2.5 text-sm font-medium text-black transition-transform hover:scale-[1.02] disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {loading ? (
@@ -336,11 +349,11 @@ export default function TryPage() {
 
           <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
             <span className="text-xs text-white/40">Or try:</span>
-            {famousRepos.map((r) => (
+            {famousSources.map((r) => (
               <button
                 key={r}
                 type="button"
-                onClick={() => setRepo(r)}
+                onClick={() => setInput(r)}
                 className="rounded-full border border-white/10 bg-white/[0.02] px-2.5 py-1 font-mono text-[11px] text-white/60 transition-colors hover:border-white/20 hover:bg-white/[0.05] hover:text-white"
               >
                 {r}
@@ -354,9 +367,9 @@ export default function TryPage() {
             </div>
           ) : null}
 
-          {repoData || briefData || loading ? (
+          {source || briefData || loading ? (
             <ProgressiveResult
-              repo={repoData}
+              source={source}
               brief={briefData}
               media={media}
               status={status}
@@ -613,13 +626,13 @@ function rollupPosters(ps: [Status, Status, Status]): Status {
 }
 
 function ProgressiveResult({
-  repo,
+  source,
   brief,
   media,
   status,
   loading,
 }: {
-  repo: RepoMeta | null;
+  source: Source | null;
   brief: Brief | null;
   media: Media;
   status: StreamStatus;
@@ -635,7 +648,7 @@ function ProgressiveResult({
 
   return (
     <div className="mt-10 flex w-full flex-col gap-4 text-left">
-      {repo ? <RepoCard repo={repo} /> : <RepoCardSkeleton />}
+      {source ? <SourceCard source={source} /> : <SourceCardSkeleton />}
 
       {showPipeline ? <Pipeline loading status={status} /> : null}
 
@@ -658,43 +671,87 @@ function ProgressiveResult({
   );
 }
 
-function RepoCard({ repo }: { repo: RepoMeta }) {
+function SourceCard({ source }: { source: Source }) {
+  if (source.kind === "github") {
+    const r = source.meta;
+    return (
+      <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-5 backdrop-blur-md">
+        <div className="flex items-center gap-3">
+          {r.avatar_url ? (
+            /* eslint-disable-next-line @next/next/no-img-element */
+            <img
+              src={r.avatar_url}
+              alt=""
+              className="h-10 w-10 rounded-full border border-white/10"
+            />
+          ) : null}
+          <div className="flex-1">
+            <a
+              href={r.html_url}
+              target="_blank"
+              rel="noreferrer"
+              className="font-mono text-sm text-white hover:underline"
+            >
+              {r.full_name}
+            </a>
+            <div className="text-xs text-white/50">
+              {r.language ? `${r.language} · ` : ""}
+              {r.stars.toLocaleString()} ★
+            </div>
+          </div>
+        </div>
+        {r.description ? (
+          <p className="mt-3 text-[13px] leading-relaxed text-white/70">
+            {r.description}
+          </p>
+        ) : null}
+      </div>
+    );
+  }
+
+  const w = source.meta;
   return (
     <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-5 backdrop-blur-md">
       <div className="flex items-center gap-3">
-        {repo.avatar_url ? (
+        {w.favicon_url ? (
           /* eslint-disable-next-line @next/next/no-img-element */
           <img
-            src={repo.avatar_url}
+            src={w.favicon_url}
             alt=""
-            className="h-10 w-10 rounded-full border border-white/10"
+            className="h-10 w-10 rounded-lg border border-white/10 bg-white/5 p-1.5"
           />
-        ) : null}
+        ) : (
+          <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-white/10 bg-white/5">
+            <HugeiconsIcon
+              icon={FlashIcon}
+              size={16}
+              strokeWidth={1.5}
+              className="text-white/60"
+            />
+          </div>
+        )}
         <div className="flex-1">
           <a
-            href={repo.html_url}
+            href={w.url}
             target="_blank"
             rel="noreferrer"
             className="font-mono text-sm text-white hover:underline"
           >
-            {repo.full_name}
+            {w.domain}
           </a>
-          <div className="text-xs text-white/50">
-            {repo.language ? `${repo.language} · ` : ""}
-            {repo.stars.toLocaleString()} ★
-          </div>
+          <div className="truncate text-xs text-white/50">{w.title}</div>
         </div>
       </div>
-      {repo.description ? (
+      {w.description ? (
         <p className="mt-3 text-[13px] leading-relaxed text-white/70">
-          {repo.description}
+          {w.description}
         </p>
       ) : null}
     </div>
   );
 }
 
-function RepoCardSkeleton() {
+function SourceCardSkeleton() {
   return (
     <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-5 backdrop-blur-md">
       <div className="flex items-center gap-3">
