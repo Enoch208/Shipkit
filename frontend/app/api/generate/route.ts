@@ -59,102 +59,105 @@ export async function POST(req: NextRequest) {
   }
 
   const encoder = new TextEncoder();
+  const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
+  const writer = writable.getWriter();
 
-  const stream = new ReadableStream<Uint8Array>({
-    async start(controller) {
-      let closed = false;
-      const send = (event: object) => {
-        if (closed) return;
-        controller.enqueue(encoder.encode(JSON.stringify(event) + "\n"));
-      };
-      const close = () => {
-        if (closed) return;
-        closed = true;
-        controller.close();
-      };
+  const send = async (event: object) => {
+    try {
+      await writer.write(encoder.encode(JSON.stringify(event) + "\n"));
+    } catch {
+      // writer closed; drop silently
+    }
+  };
 
-      try {
-        const source = await fetchSource(sourceInput);
-        send({ type: "source", data: source });
+  const run = async () => {
+    try {
+      const source = await fetchSource(sourceInput);
+      await send({ type: "source", data: source });
 
-        const brief = (await aceChatJson(
-          aceToken,
-          SYSTEM_PROMPT,
-          sourceToPrompt(source)
-        )) as Brief;
-        send({ type: "brief", data: brief });
+      const brief = (await aceChatJson(
+        aceToken,
+        SYSTEM_PROMPT,
+        sourceToPrompt(source)
+      )) as Brief;
+      await send({ type: "brief", data: brief });
 
-        if (skipMedia) {
-          send({ type: "done" });
-          close();
-          return;
-        }
-
-        const posterPrompts = (brief.poster_prompts ?? []).slice(0, 3);
-        while (posterPrompts.length < 3) posterPrompts.push("");
-
-        const tasks: Promise<unknown>[] = [];
-
-        if (brief.song_prompt) {
-          tasks.push(
-            generateSong(aceToken, brief.song_prompt)
-              .then((data) => send({ type: "song", data }))
-              .catch((e) =>
-                send({ type: "song", data: null, error: errMessage(e) })
-              )
-          );
-        } else {
-          send({ type: "song", data: null, error: "no song prompt" });
-        }
-
-        for (let i = 0; i < 3; i++) {
-          const p = posterPrompts[i];
-          if (p) {
-            tasks.push(
-              generatePoster(aceToken, p)
-                .then((data) => send({ type: "poster", index: i, data }))
-                .catch((e) =>
-                  send({
-                    type: "poster",
-                    index: i,
-                    data: null,
-                    error: errMessage(e),
-                  })
-                )
-            );
-          } else {
-            send({
-              type: "poster",
-              index: i,
-              data: null,
-              error: "no poster prompt",
-            });
-          }
-        }
-
-        if (brief.trailer_prompt) {
-          tasks.push(
-            generateTrailer(aceToken, brief.trailer_prompt)
-              .then((data) => send({ type: "trailer", data }))
-              .catch((e) =>
-                send({ type: "trailer", data: null, error: errMessage(e) })
-              )
-          );
-        } else {
-          send({ type: "trailer", data: null, error: "no trailer prompt" });
-        }
-
-        await Promise.all(tasks);
-        send({ type: "done" });
-      } catch (err) {
-        send({ type: "error", error: errMessage(err) });
-      } finally {
-        close();
+      if (skipMedia) {
+        await send({ type: "done" });
+        return;
       }
-    },
-  });
 
-  return new Response(stream, {
+      const posterPrompts = (brief.poster_prompts ?? []).slice(0, 3);
+      while (posterPrompts.length < 3) posterPrompts.push("");
+
+      const tasks: Promise<unknown>[] = [];
+
+      if (brief.song_prompt) {
+        tasks.push(
+          generateSong(aceToken, brief.song_prompt)
+            .then((data) => send({ type: "song", data }))
+            .catch((e) =>
+              send({ type: "song", data: null, error: errMessage(e) })
+            )
+        );
+      } else {
+        await send({ type: "song", data: null, error: "no song prompt" });
+      }
+
+      for (let i = 0; i < 3; i++) {
+        const p = posterPrompts[i];
+        if (p) {
+          tasks.push(
+            generatePoster(aceToken, p)
+              .then((data) => send({ type: "poster", index: i, data }))
+              .catch((e) =>
+                send({
+                  type: "poster",
+                  index: i,
+                  data: null,
+                  error: errMessage(e),
+                })
+              )
+          );
+        } else {
+          await send({
+            type: "poster",
+            index: i,
+            data: null,
+            error: "no poster prompt",
+          });
+        }
+      }
+
+      if (brief.trailer_prompt) {
+        tasks.push(
+          generateTrailer(aceToken, brief.trailer_prompt)
+            .then((data) => send({ type: "trailer", data }))
+            .catch((e) =>
+              send({ type: "trailer", data: null, error: errMessage(e) })
+            )
+        );
+      } else {
+        await send({ type: "trailer", data: null, error: "no trailer prompt" });
+      }
+
+      await Promise.all(tasks);
+      await send({ type: "done" });
+    } catch (err) {
+      await send({ type: "error", error: errMessage(err) });
+    } finally {
+      try {
+        await writer.close();
+      } catch {
+        // already closed
+      }
+    }
+  };
+
+  // Fire-and-forget — Response returns immediately so the stream is hot.
+  run();
+
+  return new Response(readable, {
     headers: {
       "Content-Type": "application/x-ndjson; charset=utf-8",
       "Cache-Control": "no-cache, no-transform",
